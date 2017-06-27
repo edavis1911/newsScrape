@@ -1,0 +1,36 @@
+{
+  "name": "newscrape",
+  "version": "1.0.0",
+  "description": "This app creates a web app that lets users leave comments on the latest news.",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/edavis1911/newsScrape.git"
+  },
+  "keywords": [
+    "Express",
+    "Handlebars",
+    "Mongoose",
+    "Body-Parser",
+    "Cheerio",
+    "Request"
+  ],
+  "author": "Ernest Davis",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/edavis1911/newsScrape/issues"
+  },
+  "homepage": "https://github.com/edavis1911/newsScrape#readme",
+  "dependencies": {
+    "body-parser": "^1.17.2",
+    "cheerio": "^1.0.0-rc.1",
+    "express": "^4.15.3",
+    "express-handlebars": "^3.0.0",
+    "mongoose": "^4.11.0",
+    "request": "^2.81.0"
+  }
+}
