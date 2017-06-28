@@ -1,139 +1,172 @@
 // Dependencies
+//test comment
 var express = require("express");
 var bodyParser = require("body-parser");
+var logger = require("morgan");
 var mongoose = require("mongoose");
+var exphbs = require("express-handlebars");
 
-// Requiring Note and Article.js 
-var Note = require("./models/Note.js");
-var Article = require("./models/Article.js");
+// Requiring our Comment and Article models
+var Comment = require("./models/comment.js");
+var Article = require("./models/article.js");
 
-// Scrapping requires
+// Our scraping tools
 var request = require("request");
 var cheerio = require("cheerio");
 
-// ES6 Promises
+// Mongoose mpromise deprecated - use bluebird promises
+var Promise = require("bluebird");
+
+var PORT = process.env.PORT || 3000;
+
 mongoose.Promise = Promise;
 
 // Initialize Express
 var app = express();
 
-// Use body parser with the app
+// Use morgan and body parser with our app
+app.use(logger("dev"));
 app.use(bodyParser.urlencoded({
-	extended: false
+  extended: false
 }));
 
-// Make a public static dir
+//use handlebars and specify default layout to main
+app.engine("handlebars", exphbs({
+	defaultLayout: "main"
+}));
+app.set("view engine", "handlebars");
+
+// Make public a static dir
 app.use(express.static("public"));
 
-// Configuring the database with Mongoose
+// Database configuration with mongoose
 mongoose.connect("mongodb://heroku_723hnvl3:sa9f8pvp9ao44u0ra79kk60lbi@ds139242.mlab.com:39242/heroku_723hnvl3");
 var db = mongoose.connection;
 
-// Mongoose Error Handling
+// Show any mongoose errors
 db.on("error", function(error) {
-	console.log("mongoose Error: ", error);
+  console.log("Mongoose Error: ", error);
 });
 
+// Once logged in to the db through mongoose, log a success message
 db.once("open", function() {
-	console.log("Mongoose connection successful.");
+  console.log("Mongoose connection successful.");
 });
 
-// Routes
+//Routes
 
-// Website to scrape
-app.get("/scrape", function(req, res) {
-	request("http://http://www.espn.com/nfl/team/_/name/pit/pittsburgh-steelers", function(error, response, html) {
+// Scrape data from site and place it into the mongodb db
+app.get("/", function(req, res) {
+  // grab the body of the html with request
+  request("http://www.espn.com/nfl/team/_/name/pit/pittsburgh-steelers", function(error, response, html) {
+    //load that into cheerio and save it to $ for a shorthand selector
+    var $ = cheerio.load(html);
+    // grab elements with the specified class and do the following:
+    $(".news-feed_item-meta").each(function(i, element) {
 
-		var $ = cheerio.load(html);
+      // Save an empty result object
+      var result = {};
 
-		$("article h1").each(function(i, element){
-
-			var result ={};
-
-			result.title = $(this).children("a").text();
-			result.link = $(this).children("a").attr("href");
-
-			var entry = new Article(result);
-			console.log(entry);
-
-			entry.save(function(err, found) {
-				if(err) {
-					console.log(err);
-				}
-				else{
-					console.log(found);
-				}
-			});
-		});
-	});
-	res.send("Scrape Complete");
-
-});
+      // Adding the text and href of every link, and save them as properties of the result object
+      result.title = $(this).text();
+      result.link = $(this).closest("a").attr("href");
 
 
-app.get("/articles", function(req, res) {
-	Article.find({}, function(error, found) {
-		if(err) {
-			console.log(err);
-		}
-		else{
-			res.json(found);
-		}
-	});
-});
 
+    Article.count({title: result.title}, function (err, count) {
 
-// Grab an article by it's ObjectId
-app.get("/articles/:id", function(req, res) {
-  // Using the id passed in the id parameter, prepare a query that finds the matching one in our db...
-  Article.findOne({ "_id": req.params.id })
-  // ..and populate all of the notes associated with it
-  .populate("note")
-  // now, execute our query
-  .exec(function(error, doc) {
-    // Log any errors
-    if (error) {
-      console.log(error);
-    }
-    // Otherwise, send the doc to the browser as a json object
-    else {
-      res.json(doc);
-    }
+     	if (count == 0) {
+
+		    var entry = new Article(result);
+
+		    // Now, save that entry to the db
+		    entry.save(function(err, doc) {
+		        // Log any errors
+		      if (err) {
+		        console.log(err);
+		      }
+		        // Or log the doc
+		      else {
+		        console.log(doc);
+		      }
+		    });
+	  	}
+    });
+
+    });
   });
+  // redirect to the display articles page
+  res.redirect("/articles");
 });
 
-// Create a new note or replace an existing note
-app.post("/articles/:id", function(req, res) {
-  // Create a new note and pass the req.body to the entry
-  var newNote = new Note(req.body);
 
-  // And save the new note the db
-  newNote.save(function(error, doc) {
+// This will get the articles scraped from the mongo db and populate the comments
+app.get("/articles", function(req, res) {
+  // Grab every doc in the Articles array
+  	Article.find({})
+	.populate("comment")
+    // Now, execute the query
+    .exec(function(error, doc) {
+      // Send any errors to the browser
+      if (error) {
+        res.send(error);
+      }
+    }).then(function(data) {
+		//send all objects to handlebars view
+		var articleObj = {articles: data};
+		console.log(articleObj);
+		//render handlebars articles page
+		res.render("articles", articleObj);
+	});
+});
+
+//route to post a comment
+app.post("/submit/:id", function(req, res) {
+	
+  //save comment in a variable
+	var newComment = new Comment(req.body);
+
+  //save the new comment the db
+  newComment.save(function(error, doc) {
     // Log any errors
     if (error) {
       console.log(error);
     }
     // Otherwise
     else {
-      // Use the article id to find and update it's note
-      Article.findOneAndUpdate({ "_id": req.params.id }, { "note": doc._id })
-      // Execute the above query
-      .exec(function(err, doc) {
-        // Log any errors
+      // Use the article id to find and update its comment
+      Article.findOneAndUpdate({"_id": req.params.id}, { $push: { "comment": doc._id } }, { new: true }, function(err, newdoc) {
+        // Send any errors to the browser
         if (err) {
-          console.log(err);
+          res.send(err);
         }
+        // otherwise, redirect to articles route, which will populate comments
         else {
-          // Or send the document to the browser
-          res.send(doc);
+          res.redirect("/articles");
         }
       });
     }
   });
 });
 
+//route to delete a comment
+app.post("/delete/:id", function(req, res) {
+  //find comment by id
+  Comment.findOneAndRemove({"_id": req.params.id}, function(error, removed) {
+    // Send any errors to the browser
+    if (error) {
+      res.send(error);
+    }
+    //otherwise, redirect to articles page
+    else {
+      res.redirect("/articles");
+    }
+  });
+});
+
+
 
 // Listen on port 3000
-app.listen(process.env.PORT || 3000, function() {
+app.listen(PORT, function() {
   console.log("App running on port 3000!");
 });
